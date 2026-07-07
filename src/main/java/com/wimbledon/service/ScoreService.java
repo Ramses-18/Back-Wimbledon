@@ -4,6 +4,7 @@ import com.wimbledon.dto.LeaderboardEntryDto;
 import com.wimbledon.entity.*;
 import com.wimbledon.repository.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -12,6 +13,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ScoreService {
 
     private static final int PTS_WINNER       = 1;
@@ -31,24 +33,20 @@ public class ScoreService {
     public int calcPickPoints(Pick pick, MatchResult res) {
         int pts = 0;
         if (!pick.getWinner().equalsIgnoreCase(res.getWinner())) return 0;
-
         pts += PTS_WINNER;
 
-        // +3 si acertó resultado en sets (setsWinner y setsLoser)
-        // Calcular setsWinner y setsLoser reales contando los sets individuales
-        // (más confiable que lo que el admin haya cargado a mano)
         int[] realCounts = contarSets(res);
-        Integer realSetsWinner = realCounts[0] > 0 ? realCounts[0] : res.getSetsWinner();
-        Integer realSetsLoser  = realCounts[1] > 0 ? realCounts[1] : res.getSetsLoser();
+        boolean hasRealSets = (realCounts[0] + realCounts[1]) > 0;
+        Integer realSetsWinner = hasRealSets ? Integer.valueOf(realCounts[0]) : res.getSetsWinner();
+        Integer realSetsLoser  = hasRealSets ? Integer.valueOf(realCounts[1]) : res.getSetsLoser();
 
-        // Si el pick no tiene setsWinner/setsLoser explícitos, contarlos de sus sets individuales
         int[] pickCounts = contarSetsPick(pick);
-        Integer pickSetsWinner = pickCounts[0] > 0 ? pickCounts[0] : pick.getSetsWinner();
-        Integer pickSetsLoser  = pickCounts[1] > 0 ? pickCounts[1] : pick.getSetsLoser();
+        boolean hasPickSets = (pickCounts[0] + pickCounts[1]) > 0;
+        Integer pickSetsWinner = hasPickSets ? Integer.valueOf(pickCounts[0]) : pick.getSetsWinner();
+        Integer pickSetsLoser  = hasPickSets ? Integer.valueOf(pickCounts[1]) : pick.getSetsLoser();
 
         boolean setsWinnerOk = pickSetsWinner != null && realSetsWinner != null
             && pickSetsWinner.equals(realSetsWinner);
-
         boolean setsLoserOk = pickSetsLoser != null && realSetsLoser != null
             && pickSetsLoser.equals(realSetsLoser);
 
@@ -56,7 +54,6 @@ public class ScoreService {
             pts += PTS_SETS;
         }
 
-        // +10 si acertó el resultado exacto set a set
         if (esResultadoExacto(pick, res))
             pts += PTS_EXACT;
 
@@ -68,7 +65,7 @@ public class ScoreService {
      * Devuelve [setsWinner, setsLoser].
      * Solo cuenta sets que tengan valores > 0 en ambos lados (un set jugado).
      */
-    private int[] contarSets(MatchResult res) {
+    public int[] contarSets(MatchResult res) {
         int w = 0, l = 0;
         Integer[][] sets = {
             {res.getSet1W(), res.getSet1L()},
@@ -87,7 +84,7 @@ public class ScoreService {
     }
 
     /** Igual que contarSets pero para un Pick */
-    private int[] contarSetsPick(Pick pick) {
+    public int[] contarSetsPick(Pick pick) {
         int w = 0, l = 0;
         Integer[][] sets = {
             {pick.getSet1W(), pick.getSet1L()},
@@ -111,14 +108,15 @@ public class ScoreService {
         if (pick.getSet1W() == null || res.getSet1W() == null) return false;
 
         boolean s1 = eq(pick.getSet1W(), res.getSet1W()) && eq(pick.getSet1L(), res.getSet1L());
-        boolean s2 = eq(pick.getSet2W(), res.getSet2W()) && eq(pick.getSet2L(), res.getSet2L());
 
-        // Set 3-5: si ambos son null se considera correcto (partido no llegó a ese set)
-        boolean s3 = ambosNull(pick.getSet3W(), res.getSet3W())
+        // Set 2-5: si ambos son null en W y L se considera correcto (partido no llegó a ese set)
+        boolean s2 = (ambosNull(pick.getSet2W(), res.getSet2W()) && ambosNull(pick.getSet2L(), res.getSet2L()))
+            || (eq(pick.getSet2W(), res.getSet2W()) && eq(pick.getSet2L(), res.getSet2L()));
+        boolean s3 = (ambosNull(pick.getSet3W(), res.getSet3W()) && ambosNull(pick.getSet3L(), res.getSet3L()))
             || (eq(pick.getSet3W(), res.getSet3W()) && eq(pick.getSet3L(), res.getSet3L()));
-        boolean s4 = ambosNull(pick.getSet4W(), res.getSet4W())
+        boolean s4 = (ambosNull(pick.getSet4W(), res.getSet4W()) && ambosNull(pick.getSet4L(), res.getSet4L()))
             || (eq(pick.getSet4W(), res.getSet4W()) && eq(pick.getSet4L(), res.getSet4L()));
-        boolean s5 = ambosNull(pick.getSet5W(), res.getSet5W())
+        boolean s5 = (ambosNull(pick.getSet5W(), res.getSet5W()) && ambosNull(pick.getSet5L(), res.getSet5L()))
             || (eq(pick.getSet5W(), res.getSet5W()) && eq(pick.getSet5L(), res.getSet5L()));
 
         return s1 && s2 && s3 && s4 && s5;
